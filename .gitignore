@@ -1,0 +1,13 @@
+data/videos/**/*.mp4
+data/videos/**/*.mov
+data/videos/**/*.avi
+data/videos/**/*.mkv
+data/frames/**/*
+!data/frames/**/.gitkeep
+!data/videos/**/.gitkeep
+
+results/**/*
+!results/**/.gitkeep
+
+.ipynb_checkpoints/
+*.log
