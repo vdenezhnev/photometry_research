@@ -95,7 +95,9 @@ def test_evaluate_frames_dir_summary(tmp_path: Path) -> None:
     (frames_dir / "frame_001.png").write_bytes(b"y")
     (frames_dir / "frame_002.png").write_bytes(b"z")
 
-    def _fake_metrics(path_a, path_b, **kwargs):
+    cfg = {"processing": {"max_image_size": 128, "orb_features": 300}, "thresholds": {}}
+
+    def _fake_eval_pair(self, path_a, path_b):
         return PairQualityMetrics(
             frame_a=path_a.name,
             frame_b=path_b.name,
@@ -107,10 +109,9 @@ def test_evaluate_frames_dir_summary(tmp_path: Path) -> None:
             reasons=[],
         )
 
-    cfg = {"processing": {"max_image_size": 128, "orb_features": 300}, "thresholds": {}}
     with patch(
-        "adaptive_sampling.frame_pair_quality.evaluate.compute_pair_metrics",
-        side_effect=_fake_metrics,
+        "adaptive_sampling.frame_pair_quality.evaluate.ProcessingContext.eval_pair",
+        _fake_eval_pair,
     ):
         result = evaluate_frames_dir(frames_dir, config=cfg)
 

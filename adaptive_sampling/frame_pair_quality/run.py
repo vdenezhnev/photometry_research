@@ -17,6 +17,7 @@ from .export import (
     write_report_xlsx,
     write_summary_json,
 )
+from .progress import log_stage
 
 
 def _comparison_row(result: FpsPairQualityResult) -> dict[str, Any]:
@@ -45,6 +46,19 @@ def save_fps_result(result: FpsPairQualityResult, output_dir: Path, *, top_k: in
     return output_dir
 
 
+def _resolve_run_paths(
+    *,
+    frames_root: Path | str | None,
+    output_root: Path | str | None,
+    config: dict[str, Any],
+) -> tuple[Path, Path]:
+    paths = config.get("paths") or {}
+    return (
+        resolve_path(frames_root or paths.get("frames_root", "data/frames")),
+        resolve_path(output_root or paths.get("results_root", "results/frame_pair_quality")),
+    )
+
+
 def run_for_video(
     video_slug: str,
     *,
@@ -52,10 +66,14 @@ def run_for_video(
     output_root: Path | str = "results/frame_pair_quality",
     config: dict[str, Any] | None = None,
     config_path: Path | None = None,
+    show_progress: bool = False,
 ) -> list[FpsPairQualityResult]:
     cfg = config or load_pair_quality_config(config_path)
-    frames_root = resolve_path(frames_root)
-    output_root = resolve_path(output_root)
+    frames_root, output_root = _resolve_run_paths(
+        frames_root=frames_root,
+        output_root=output_root,
+        config=cfg,
+    )
     report_cfg = cfg.get("report") or {}
     top_k = int(report_cfg.get("top_k_problematic", 50))
 
@@ -64,13 +82,26 @@ def run_for_video(
         raise FileNotFoundError(f"Video frames not found: {video_dir}")
 
     results: list[FpsPairQualityResult] = []
-    for fps_dir in sorted(video_dir.iterdir()):
-        if not fps_dir.is_dir() or not fps_dir.name.startswith("fps_"):
-            continue
-        result = evaluate_frames_dir(fps_dir, config=cfg, video_slug=video_slug)
+    fps_dirs = sorted(
+        d for d in video_dir.iterdir() if d.is_dir() and d.name.startswith("fps_")
+    )
+    for fps_idx, fps_dir in enumerate(fps_dirs, start=1):
+        if show_progress:
+            log_stage(f"  [{fps_idx}/{len(fps_dirs)}] {fps_dir.name}")
+        result = evaluate_frames_dir(
+            fps_dir,
+            config=cfg,
+            video_slug=video_slug,
+            show_progress=show_progress,
+        )
         out = output_root / video_slug / fps_dir.name
         save_fps_result(result, out, top_k=top_k)
         results.append(result)
+        if show_progress:
+            log_stage(
+                f"    -> {result.good_pairs}/{result.total_pairs} good, "
+                f"{result.bad_pairs} bad"
+            )
 
     if results:
         rows = [_comparison_row(r) for r in results]
@@ -90,21 +121,26 @@ def run_batch(
     output_root: Path | str | None = None,
     config: dict[str, Any] | None = None,
     config_path: Path | None = None,
+    show_progress: bool = False,
 ) -> dict[str, list[FpsPairQualityResult]]:
     cfg = config or load_pair_quality_config(config_path)
-    paths = cfg.get("paths") or {}
-    frames_root = resolve_path(frames_root or paths.get("frames_root", "data/frames"))
-    output_root = resolve_path(output_root or paths.get("results_root", "results/frame_pair_quality"))
+    frames_root, output_root = _resolve_run_paths(
+        frames_root=frames_root,
+        output_root=output_root,
+        config=cfg,
+    )
 
     all_results: dict[str, list[FpsPairQualityResult]] = {}
-    for video_dir in sorted(frames_root.iterdir()):
-        if not video_dir.is_dir():
-            continue
+    video_dirs = sorted(d for d in frames_root.iterdir() if d.is_dir())
+    for video_idx, video_dir in enumerate(video_dirs, start=1):
+        if show_progress:
+            log_stage(f"\n[{video_idx}/{len(video_dirs)}] {video_dir.name}")
         all_results[video_dir.name] = run_for_video(
             video_dir.name,
             frames_root=frames_root,
             output_root=output_root,
             config=cfg,
+            show_progress=show_progress,
         )
     return all_results
 
@@ -115,6 +151,7 @@ def run_frames_dir(
     output_dir: Path | str | None = None,
     config: dict[str, Any] | None = None,
     config_path: Path | None = None,
+    show_progress: bool = False,
 ) -> FpsPairQualityResult:
     cfg = config or load_pair_quality_config(config_path)
     frames_dir = resolve_path(frames_dir)
@@ -127,6 +164,6 @@ def run_frames_dir(
     else:
         output_dir = resolve_path(output_dir)
 
-    result = evaluate_frames_dir(frames_dir, config=cfg)
+    result = evaluate_frames_dir(frames_dir, config=cfg, show_progress=show_progress)
     save_fps_result(result, output_dir, top_k=int(report_cfg.get("top_k_problematic", 50)))
     return result

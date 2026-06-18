@@ -5,6 +5,8 @@ data/videos/**/*.mkv
 !data/frames/**/.gitkeep
 !data/videos/**/.gitkeep
 
+__pycache__/
+
 results/**/*
 !results/**/.gitkeep
 

@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from ..common.paths import resolve_path
-from ..ml.labels import adjacent_pairs, list_frame_files
-from .metrics import PairQualityMetrics, compute_pair_metrics
+from ..ml.labels import list_frame_files
+from .metrics import PairQualityMetrics, ProcessingContext
+from .progress import log_pair_progress
 
 
 @dataclass
@@ -57,12 +58,36 @@ def parse_frames_dir(frames_dir: Path) -> tuple[str, str]:
     return frames_dir.parent.name, frames_dir.name
 
 
+def _empty_result(
+    *,
+    video_slug: str,
+    fps_label: str,
+    frames_dir: Path,
+) -> FpsPairQualityResult:
+    return FpsPairQualityResult(
+        video_slug=video_slug,
+        fps_label=fps_label,
+        frames_dir=str(frames_dir),
+        evaluated_at=datetime.now(timezone.utc).isoformat(),
+        total_pairs=0,
+        good_pairs=0,
+        bad_pairs=0,
+        good_ratio=0.0,
+        mean_similarity=0.0,
+        mean_feature_matches=0.0,
+        mean_scene_cut_score=0.0,
+        pairs=[],
+        problematic_pairs=[],
+    )
+
+
 def evaluate_frames_dir(
     frames_dir: Path,
     *,
     config: dict[str, Any],
     video_slug: str | None = None,
     fps_label: str | None = None,
+    show_progress: bool = False,
 ) -> FpsPairQualityResult:
     frames_dir = resolve_path(frames_dir)
     if not frames_dir.is_dir():
@@ -72,68 +97,45 @@ def evaluate_frames_dir(
     video_slug = video_slug or slug
     fps_label = fps_label or fps
 
-    proc = config.get("processing") or {}
-    thresholds = config.get("thresholds") or {}
-    max_size = int(proc.get("max_image_size", 960))
-    orb_features = int(proc.get("orb_features", 2000))
-
     files = list_frame_files(frames_dir)
     if len(files) < 2:
-        return FpsPairQualityResult(
-            video_slug=video_slug,
-            fps_label=fps_label,
-            frames_dir=str(frames_dir),
-            evaluated_at=datetime.now(timezone.utc).isoformat(),
-            total_pairs=0,
-            good_pairs=0,
-            bad_pairs=0,
-            good_ratio=0.0,
-            mean_similarity=0.0,
-            mean_feature_matches=0.0,
-            mean_scene_cut_score=0.0,
-            pairs=[],
-            problematic_pairs=[],
-        )
+        return _empty_result(video_slug=video_slug, fps_label=fps_label, frames_dir=frames_dir)
 
+    ctx = ProcessingContext.from_config(config)
     pairs: list[PairQualityMetrics] = []
-    for fa, fb in adjacent_pairs(frames_dir):
-        pa, pb = frames_dir / fa, frames_dir / fb
-        metrics = compute_pair_metrics(
-            pa,
-            pb,
-            max_image_size=max_size,
-            orb_features=orb_features,
-            thresholds=thresholds,
-        )
-        pairs.append(
-            PairQualityMetrics(
-                frame_a=fa,
-                frame_b=fb,
-                similarity=metrics.similarity,
-                feature_matches=metrics.feature_matches,
-                scene_cut_score=metrics.scene_cut_score,
-                suitable=metrics.suitable,
-                status=metrics.status,
-                reasons=metrics.reasons,
-            )
-        )
+    problematic: list[PairQualityMetrics] = []
+    good_count = 0
+    sim_sum = 0.0
+    match_sum = 0.0
+    cut_sum = 0.0
+    total_pairs = len(files) - 1
+    progress_label = f"{video_slug}/{fps_label}"
 
-    good = [p for p in pairs if p.suitable]
-    bad = [p for p in pairs if not p.suitable]
-    n = len(pairs)
+    for idx, (path_a, path_b) in enumerate(zip(files, files[1:]), start=1):
+        metrics = ctx.eval_pair(path_a, path_b)
+        pairs.append(metrics)
+        sim_sum += metrics.similarity
+        match_sum += metrics.feature_matches
+        cut_sum += metrics.scene_cut_score
+        if metrics.suitable:
+            good_count += 1
+        else:
+            problematic.append(metrics)
+        if show_progress:
+            log_pair_progress(progress_label, idx, total_pairs)
 
     return FpsPairQualityResult(
         video_slug=video_slug,
         fps_label=fps_label,
         frames_dir=str(frames_dir),
         evaluated_at=datetime.now(timezone.utc).isoformat(),
-        total_pairs=n,
-        good_pairs=len(good),
-        bad_pairs=len(bad),
-        good_ratio=round(len(good) / n, 4) if n else 0.0,
-        mean_similarity=round(sum(p.similarity for p in pairs) / n, 4) if n else 0.0,
-        mean_feature_matches=round(sum(p.feature_matches for p in pairs) / n, 2) if n else 0.0,
-        mean_scene_cut_score=round(sum(p.scene_cut_score for p in pairs) / n, 4) if n else 0.0,
+        total_pairs=total_pairs,
+        good_pairs=good_count,
+        bad_pairs=total_pairs - good_count,
+        good_ratio=round(good_count / total_pairs, 4),
+        mean_similarity=round(sim_sum / total_pairs, 4),
+        mean_feature_matches=round(match_sum / total_pairs, 2),
+        mean_scene_cut_score=round(cut_sum / total_pairs, 4),
         pairs=pairs,
-        problematic_pairs=bad,
+        problematic_pairs=problematic,
     )

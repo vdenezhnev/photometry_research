@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 import cv2
@@ -26,7 +27,52 @@ class PairQualityMetrics:
         return d
 
 
-def _resize_gray(path, max_size: int) -> np.ndarray:
+@dataclass
+class ProcessingContext:
+    """Переиспользуемый контекст: ORB, matcher, кэш кадров."""
+
+    max_image_size: int
+    orb_features: int
+    thresholds: dict[str, Any]
+    _orb: Any = field(repr=False)
+    _matcher: Any = field(repr=False)
+    _frame_cache: dict[Path, np.ndarray] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any]) -> ProcessingContext:
+        proc = config.get("processing") or {}
+        orb_features = int(proc.get("orb_features", 2000))
+        orb = cv2.ORB_create(nfeatures=orb_features)
+        return cls(
+            max_image_size=int(proc.get("max_image_size", 960)),
+            orb_features=orb_features,
+            thresholds=config.get("thresholds") or {},
+            _orb=orb,
+            _matcher=cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True),
+        )
+
+    def load_gray(self, path: Path) -> np.ndarray:
+        path = Path(path)
+        cached = self._frame_cache.get(path)
+        if cached is not None:
+            return cached
+        gray = _resize_gray(path, self.max_image_size)
+        self._frame_cache[path] = gray
+        return gray
+
+    def eval_pair(self, path_a: Path, path_b: Path) -> PairQualityMetrics:
+        return compute_pair_metrics_from_gray(
+            self.load_gray(path_a),
+            self.load_gray(path_b),
+            frame_a=path_a.name,
+            frame_b=path_b.name,
+            orb=self._orb,
+            matcher=self._matcher,
+            thresholds=self.thresholds,
+        )
+
+
+def _resize_gray(path: Path, max_size: int) -> np.ndarray:
     img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
     if img is None:
         raise RuntimeError(f"Cannot read image: {path}")
@@ -47,8 +93,8 @@ def histogram_similarity(gray_a: np.ndarray, gray_b: np.ndarray) -> float:
 
 
 def ssim_simple(gray_a: np.ndarray, gray_b: np.ndarray) -> float:
-    a = gray_a.astype(np.float64)
-    b = gray_b.astype(np.float64)
+    a = gray_a.astype(np.float32)
+    b = gray_b.astype(np.float32)
     mu_a, mu_b = a.mean(), b.mean()
     var_a, var_b = a.var(), b.var()
     cov = ((a - mu_a) * (b - mu_b)).mean()
@@ -60,27 +106,29 @@ def ssim_simple(gray_a: np.ndarray, gray_b: np.ndarray) -> float:
     return float(max(0.0, min(1.0, num / den)))
 
 
-def combined_similarity(gray_a: np.ndarray, gray_b: np.ndarray) -> float:
+def _visual_scores(gray_a: np.ndarray, gray_b: np.ndarray) -> tuple[float, float]:
     hist_sim = histogram_similarity(gray_a, gray_b)
-    ssim = ssim_simple(gray_a, gray_b)
-    return round(0.5 * hist_sim + 0.5 * ssim, 4)
+    similarity = round(0.5 * hist_sim + 0.5 * ssim_simple(gray_a, gray_b), 4)
+    pixel_diff = float(cv2.absdiff(gray_a, gray_b).mean()) / 255.0
+    scene_cut = round(max(pixel_diff, 1.0 - hist_sim), 4)
+    return similarity, scene_cut
 
 
-def scene_cut_score(gray_a: np.ndarray, gray_b: np.ndarray, *, hist_similarity: float) -> float:
-    diff = cv2.absdiff(gray_a, gray_b)
-    pixel_diff = float(np.mean(diff)) / 255.0
-    hist_cut = 1.0 - hist_similarity
-    return round(max(pixel_diff, hist_cut), 4)
-
-
-def count_feature_matches(gray_a: np.ndarray, gray_b: np.ndarray, *, orb_features: int) -> int:
-    orb = cv2.ORB_create(nfeatures=int(orb_features))
-    kp_a, des_a = orb.detectAndCompute(gray_a, None)
-    kp_b, des_b = orb.detectAndCompute(gray_b, None)
+def count_feature_matches(
+    gray_a: np.ndarray,
+    gray_b: np.ndarray,
+    *,
+    orb_features: int = 2000,
+    orb: Any | None = None,
+    matcher: Any | None = None,
+) -> int:
+    detector = orb or cv2.ORB_create(nfeatures=int(orb_features))
+    kp_a, des_a = detector.detectAndCompute(gray_a, None)
+    kp_b, des_b = detector.detectAndCompute(gray_b, None)
     if des_a is None or des_b is None or len(kp_a) < 2 or len(kp_b) < 2:
         return 0
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    return len(bf.match(des_a, des_b))
+    matcher_impl = matcher or cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    return len(matcher_impl.match(des_a, des_b))
 
 
 def classify_pair(
@@ -124,18 +172,24 @@ def compute_pair_metrics_from_gray(
     frame_a: str = "a",
     frame_b: str = "b",
     orb_features: int = 2000,
+    orb: Any | None = None,
+    matcher: Any | None = None,
     thresholds: dict[str, Any] | None = None,
 ) -> PairQualityMetrics:
-    hist_sim = histogram_similarity(gray_a, gray_b)
-    similarity = combined_similarity(gray_a, gray_b)
-    cut = scene_cut_score(gray_a, gray_b, hist_similarity=hist_sim)
-    matches = count_feature_matches(gray_a, gray_b, orb_features=orb_features)
+    similarity, scene_cut = _visual_scores(gray_a, gray_b)
+    matches = count_feature_matches(
+        gray_a,
+        gray_b,
+        orb_features=orb_features,
+        orb=orb,
+        matcher=matcher,
+    )
     return classify_pair(
         frame_a=frame_a,
         frame_b=frame_b,
         similarity=similarity,
         feature_matches=matches,
-        scene_cut_score=cut,
+        scene_cut_score=scene_cut,
         thresholds=thresholds or {},
     )
 
@@ -148,13 +202,13 @@ def compute_pair_metrics(
     orb_features: int = 2000,
     thresholds: dict[str, Any] | None = None,
 ) -> PairQualityMetrics:
-    gray_a = _resize_gray(path_a, max_image_size)
-    gray_b = _resize_gray(path_b, max_image_size)
+    gray_a = _resize_gray(Path(path_a), max_image_size)
+    gray_b = _resize_gray(Path(path_b), max_image_size)
     return compute_pair_metrics_from_gray(
         gray_a,
         gray_b,
-        frame_a=path_a.name if hasattr(path_a, "name") else str(path_a),
-        frame_b=path_b.name if hasattr(path_b, "name") else str(path_b),
+        frame_a=Path(path_a).name,
+        frame_b=Path(path_b).name,
         orb_features=orb_features,
         thresholds=thresholds,
     )
