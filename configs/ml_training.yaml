@@ -3,6 +3,7 @@
 paths:
   frames_root: data/frames
   sparse_results_root: results/task2_sparse_eval
+  pair_quality_results_root: results/frame_pair_quality
   manual_labels_xlsx: data/labels/manual/pairs.xlsx
   dataset_csv: data/labels/pairs_dataset.csv
   checkpoints_dir: models/checkpoints

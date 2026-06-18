@@ -24,6 +24,10 @@ def load_sparse_config(path: Path | None = None) -> dict[str, Any]:
     return load_yaml(path, "configs/sparse_eval.yaml")
 
 
+def load_pair_quality_config(path: Path | None = None) -> dict[str, Any]:
+    return load_yaml(path, "configs/frame_pair_quality.yaml")
+
+
 def fps_values_from_config(config: dict[str, Any]) -> list[float]:
     values = config.get("fps_values")
     if not isinstance(values, list) or not values:

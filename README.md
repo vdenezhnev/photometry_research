@@ -10,12 +10,20 @@ adaptive_frame_sampling/
 ├── requirements.txt
 ├── adaptive_sampling/
 │   ├── common/              # пути, загрузка YAML
-│   ├── frame_extraction/    # метод 1: нарезка кадров
+│   ├── frame_extraction/    # нарезка кадров (OpenCV)
+│   ├── frame_pair_quality/  # метод 1: быстрая проверка пар для SfM
+│   │   └── frame_pair_quality.py  # CLI
 │   ├── sparse_eval/         # метод 2: sparse PyCOLMAP
 │   └── ml/                  # метод 3: ML пары good/bad
 ├── configs/
+│   ├── extraction_fps.yaml
+│   ├── frame_pair_quality.yaml
+│   ├── ml_training.yaml
+│   └── sparse_eval.yaml
 ├── data/
-└── results/
+│   ├── videos/              # исходные видео
+│   └── frames/                # нарезанные кадры
+└── results/                   # метрики и сводки
 ```
 
 ## Быстрый старт в Colab
@@ -45,6 +53,60 @@ from adaptive_sampling import (
 extract_all_fps_in_directory("data/videos")
 
 results = run_batch_for_video("my_video_slug")
+```
+
+## Метод 1 — быстрая проверка пар кадров (`frame_pair_quality`)
+
+Для каждой пары соседних кадров считаются метрики (OpenCV, без COLMAP):
+
+| Метрика | Описание |
+|---------|----------|
+| `similarity` | SSIM + гистограммная корреляция (0–1) |
+| `feature_matches` | число ORB-совпадений |
+| `scene_cut_score` | признак резкой смены сцены (0–1) |
+
+Статус пары: **good** (пригодна) / **bad** (непригодна) по порогам в `configs/frame_pair_quality.yaml`.
+
+```bash
+# все видео и FPS
+python -m adaptive_sampling.frame_pair_quality
+
+# одно видео
+python -m adaptive_sampling.frame_pair_quality --video video_2026-04-16_11-31-49
+
+# проверка + автоматическая разметка датасета
+python -m adaptive_sampling.frame_pair_quality --run-and-build
+```
+
+Результаты:
+
+- `results/frame_pair_quality/<video>/fps_<N>/pair_metrics.json` — все пары
+- `results/frame_pair_quality/<video>/fps_<N>/summary.json` — сводка
+- `results/frame_pair_quality/<video>/fps_<N>/problematic_pairs.csv` — проблемные пары
+- `results/frame_pair_quality/<video>/fps_<N>/report.xlsx` — отчёт
+- `results/frame_pair_quality/_batch/<video>/comparison_table.csv` — сравнение FPS
+
+Размеченный датасет для ML:
+
+- `data/labels/pair_quality_dataset.csv`
+- `data/labels/pair_quality/pairs_labeled.xlsx`
+
+Или через ML-модуль:
+
+```bash
+python -m adaptive_sampling.ml.build_dataset --from-pair-quality
+python -m adaptive_sampling.ml.train
+```
+
+**Ожидаемое поведение:** на проблемном видео при **низком FPS** (fps_2) больше непригодных пар, чем при fps_30/60 — больший временной интервал между кадрами.
+
+Пороги (`configs/frame_pair_quality.yaml`):
+
+```yaml
+thresholds:
+  min_similarity: 0.35
+  min_feature_matches: 25
+  max_scene_cut_score: 0.55
 ```
 
 ## Результаты sparse eval

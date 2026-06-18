@@ -1,20 +1,8 @@
-# FPS для нарезки каждого видео (задачи 1–2)
-# extract_frames.py читает этот файл
+fps_values: [2, 5, 10, 30, 60]
 
-default_output_pattern: "data/frames/{video_slug}/fps_{fps}"
+output:
+  frames_pattern: data/frames/{video_slug}/fps_{fps}
 
-# Перебираемые частоты (кадров в секунду исходного видео → интервал выборки)
-fps_values:
-  - 2
-  - 5
-  - 10
-  - 30
-  - 60
-
-# Имена выходных файлов
-frame_filename_template: "frame_{index:06d}.jpg"
-image_format: jpg
-jpeg_quality: 95
-
-# Опционально: ограничить длину ролика при отладке (секунды; null = весь файл)
-max_duration_sec: null
+extraction:
+  jpeg_quality: 95
+  image_format: jpg

@@ -39,27 +39,47 @@ def export_template(config_path: Path | None = None) -> Path:
     return out
 
 
-def build_dataset(config_path: Path | None = None) -> int:
+def build_dataset(config_path: Path | None = None, *, source: str = "manual") -> int:
     cfg = load_ml_config(config_path)
     paths = cfg.get("paths") or {}
-    manual = resolve_path(paths.get("manual_labels_xlsx", "data/labels/manual/pairs.xlsx"))
     frames_root = resolve_path(paths.get("frames_root", "data/frames"))
     dataset_csv = resolve_path(paths.get("dataset_csv", "data/labels/pairs_dataset.csv"))
 
-    pairs = read_manual_xlsx(manual)
-    pairs = validate_pairs_exist(pairs, frames_root)
-    if not pairs:
-        raise RuntimeError(
-            f"No labeled pairs in {manual}. Fill column 'label' (good/bad). "
-            "Run: python -m adaptive_sampling.ml.build_dataset --export-template"
+    if source == "pair_quality":
+        from ..frame_pair_quality.dataset import load_results_from_dir, results_to_pair_labels
+
+        pq_root = resolve_path(
+            paths.get("pair_quality_results_root", "results/frame_pair_quality")
         )
-    write_dataset_csv(pairs, dataset_csv)
-    return len(pairs)
+        labels = results_to_pair_labels(load_results_from_dir(pq_root))
+        labels = validate_pairs_exist(labels, frames_root)
+        if not labels:
+            raise RuntimeError(
+                f"No pair quality labels in {pq_root}. "
+                "Run: python -m adaptive_sampling.frame_pair_quality"
+            )
+    else:
+        manual = resolve_path(paths.get("manual_labels_xlsx", "data/labels/manual/pairs.xlsx"))
+        labels = read_manual_xlsx(manual)
+        labels = validate_pairs_exist(labels, frames_root)
+        if not labels:
+            raise RuntimeError(
+                f"No labeled pairs in {manual}. Fill column 'label' (good/bad). "
+                "Run: python -m adaptive_sampling.ml.build_dataset --export-template"
+            )
+
+    write_dataset_csv(labels, dataset_csv)
+    return len(labels)
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Build ML pair dataset / export Excel template")
     p.add_argument("--export-template", action="store_true", help="Create pairs.xlsx for manual labeling")
+    p.add_argument(
+        "--from-pair-quality",
+        action="store_true",
+        help="Build dataset from frame_pair_quality results (auto labels)",
+    )
     p.add_argument("--config", type=Path, default=PROJECT_ROOT / "configs/ml_training.yaml")
     args = p.parse_args(argv)
 
@@ -69,7 +89,8 @@ def main(argv: list[str] | None = None) -> int:
         print("Fill column 'label' with good or bad, then run without --export-template")
         return 0
 
-    n = build_dataset(args.config)
+    source = "pair_quality" if args.from_pair_quality else "manual"
+    n = build_dataset(args.config, source=source)
     print(f"Dataset built: {n} pairs")
     return 0
 

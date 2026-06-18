@@ -1,0 +1,22 @@
+# Быстрая проверка пригодности соседних пар кадров для SfM (OpenCV, без COLMAP)
+
+paths:
+  frames_root: data/frames
+  results_root: results/frame_pair_quality
+  dataset_csv: data/labels/pair_quality_dataset.csv
+  dataset_xlsx: data/labels/pair_quality/pairs_labeled.xlsx
+
+processing:
+  max_image_size: 960
+  orb_features: 2000
+
+thresholds:
+  # Гистограммная корреляция + SSIM → similarity ∈ [0, 1]
+  min_similarity: 0.35
+  # Число ORB-совпадений между соседними кадрами
+  min_feature_matches: 25
+  # 0 = та же сцена, 1 = резкая смена (гистограмма + pixel diff)
+  max_scene_cut_score: 0.55
+
+report:
+  top_k_problematic: 50
