@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
-from ..paths import resolve_path
+from ..common.paths import resolve_path
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 _GOOD = frozenset({"good", "хорошая", "ok", "1", "true", "yes", "да"})

@@ -6,8 +6,8 @@ import argparse
 import json
 from pathlib import Path
 
-from ..config import load_yaml
-from ..paths import PROJECT_ROOT, resolve_path
+from ..common.config import load_yaml
+from ..common.paths import PROJECT_ROOT, resolve_path
 from .build_dataset import build_dataset, load_ml_config
 from .dataset import build_pair_dataset, load_training_pairs, split_by_video
 from .model import PairQualityModel

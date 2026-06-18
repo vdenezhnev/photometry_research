@@ -6,16 +6,16 @@
 
 ```text
 adaptive_frame_sampling/
-├── colab.ipynb              # главный ноутбук
+├── colab.ipynb
 ├── requirements.txt
-├── adaptive_sampling/       # Python-код
+├── adaptive_sampling/
+│   ├── common/              # пути, загрузка YAML
+│   ├── frame_extraction/    # метод 1: нарезка кадров
+│   ├── sparse_eval/         # метод 2: sparse PyCOLMAP
+│   └── ml/                  # метод 3: ML пары good/bad
 ├── configs/
-│   ├── extraction_fps.yaml  # FPS: 2, 5, 10, 30, 60
-│   └── sparse_eval.yaml     # PyCOLMAP + пороги метрик
 ├── data/
-│   ├── videos/              # исходные видео
-│   └── frames/                # нарезанные кадры
-└── results/                   # метрики и сводки
+└── results/
 ```
 
 ## Быстрый старт в Colab

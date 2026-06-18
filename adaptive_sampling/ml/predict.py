@@ -7,8 +7,8 @@ import csv
 import json
 from pathlib import Path
 
-from ..config import load_yaml
-from ..paths import PROJECT_ROOT, resolve_path
+from ..common.config import load_yaml
+from ..common.paths import PROJECT_ROOT, resolve_path
 from .build_dataset import load_ml_config
 from .labels import adjacent_pairs
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from ..paths import resolve_path
+from ..common.paths import resolve_path
 from .labels import PairLabel, pair_image_paths, read_manual_xlsx, validate_pairs_exist
 
 

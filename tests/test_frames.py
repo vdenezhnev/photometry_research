@@ -6,10 +6,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
-from adaptive_sampling.frames import extract_frames, sample_timestamps
-from adaptive_sampling.paths import frames_dir_for, video_slug_from_path
+from adaptive_sampling.common.paths import frames_dir_for, video_slug_from_path
+from adaptive_sampling.frame_extraction import extract_frames, sample_timestamps
 
 
 def test_video_slug() -> None:
@@ -25,7 +24,7 @@ def test_sample_timestamps() -> None:
     assert sample_timestamps(10.0, 2.0) == [i * 0.5 for i in range(20)]
 
 
-@patch("adaptive_sampling.frames.cv2")
+@patch("adaptive_sampling.frame_extraction.extract.cv2")
 def test_extract_frames(mock_cv2: MagicMock, tmp_path: Path) -> None:
     cap = MagicMock()
     cap.isOpened.return_value = True
@@ -38,7 +37,7 @@ def test_extract_frames(mock_cv2: MagicMock, tmp_path: Path) -> None:
         return False, None
 
     cap.read.side_effect = _read
-    cap.get.side_effect = lambda prop: {5: 30.0, 7: 60}.get(prop, 0)  # FPS, FRAME_COUNT
+    cap.get.side_effect = lambda prop: {5: 30.0, 7: 60}.get(prop, 0)
     mock_cv2.VideoCapture.return_value = cap
     mock_cv2.imwrite.return_value = True
     mock_cv2.CAP_PROP_FPS = 5
@@ -52,10 +51,10 @@ def test_extract_frames(mock_cv2: MagicMock, tmp_path: Path) -> None:
     out.mkdir()
 
     with patch(
-        "adaptive_sampling.frames.load_extraction_config",
+        "adaptive_sampling.frame_extraction.extract.load_extraction_config",
         return_value={"jpeg_quality": 95, "image_format": "jpg"},
     ):
-        with patch("adaptive_sampling.frames.probe_video", return_value=(2.0, 30.0)):
+        with patch("adaptive_sampling.frame_extraction.extract.probe_video", return_value=(2.0, 30.0)):
             result = extract_frames(video, extraction_fps=2.0, output_dir=out)
 
     assert result.frame_count == 2

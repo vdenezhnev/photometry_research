@@ -12,11 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from .config import load_sparse_config
+from ..common.config import load_sparse_config
+from ..common.paths import resolve_path
+from ..frame_extraction import copy_frames_to_workspace
 from .export import write_comparison_xlsx, write_sparse_run_xlsx
-from .frames import copy_frames_to_workspace
 from .metrics import empty_metrics, metrics_from_reconstruction
-from .paths import resolve_path
 
 LogFn = Callable[[str], None]
 
@@ -181,7 +181,7 @@ def run_sparse_eval(
     frames_dir = resolve_path(frames_dir)
 
     if output_dir is None:
-        output_dir = resolve_path(f"results/sparse_eval/{video_slug}/{fps_label}")
+        output_dir = resolve_path(f"results/task2_sparse_eval/{video_slug}/{fps_label}")
     else:
         output_dir = resolve_path(output_dir)
 
@@ -288,7 +288,7 @@ def run_batch_for_video(
 ) -> list[EvalRunResult]:
     config = load_sparse_config(config_path)
     frames_root = resolve_path(frames_root or "data/frames")
-    results_root = resolve_path(results_root or "results/sparse_eval")
+    results_root = resolve_path(results_root or "results/task2_sparse_eval")
     top_k = int(top_k if top_k is not None else config.get("top_k_fps_modes", 3))
 
     video_dir = frames_root / video_slug

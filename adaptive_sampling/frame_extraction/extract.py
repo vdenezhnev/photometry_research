@@ -11,8 +11,8 @@ from typing import Any
 
 import cv2
 
-from .config import fps_values_from_config, load_extraction_config
-from .paths import frames_dir_for, resolve_path, video_slug_from_path
+from ..common.config import fps_values_from_config, load_extraction_config
+from ..common.paths import frames_dir_for, resolve_path, video_slug_from_path
 
 
 @dataclass

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
-import pytest
-
-from adaptive_sampling.metrics import composite_score, evaluate_success, empty_metrics
-from adaptive_sampling.sparse import parse_frames_dir, select_top_fps_modes
+from adaptive_sampling.sparse_eval import (
+    composite_score,
+    empty_metrics,
+    evaluate_success,
+    parse_frames_dir,
+    select_top_fps_modes,
+)
 
 
 def test_parse_frames_dir(tmp_path: Path) -> None:
@@ -62,7 +64,7 @@ def test_select_top_fps_modes() -> None:
 
 
 def test_subsample_files(tmp_path: Path) -> None:
-    from adaptive_sampling.frames import _subsample_files
+    from adaptive_sampling.frame_extraction.extract import _subsample_files
 
     files = [tmp_path / f"f{i:03d}.jpg" for i in range(10)]
     picked = _subsample_files(files, 4)

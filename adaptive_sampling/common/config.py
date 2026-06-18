@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from .paths import PROJECT_ROOT, resolve_path
+from .paths import PROJECT_ROOT
 
 
 def load_yaml(path: Path | None, default_relative: str) -> dict[str, Any]:

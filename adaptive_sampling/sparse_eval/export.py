@@ -1,9 +1,9 @@
-"""Export evaluation results to Excel."""
+"""Export sparse eval results to Excel."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 try:
     from openpyxl import Workbook

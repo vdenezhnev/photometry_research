@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ..config import load_yaml
-from ..paths import PROJECT_ROOT, resolve_path
+from ..common.config import load_yaml
+from ..common.paths import PROJECT_ROOT, resolve_path
 from .labels import (
     export_template_xlsx,
     iter_pairs_for_template,
