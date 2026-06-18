@@ -3,25 +3,24 @@
 from __future__ import annotations
 
 import sys
-from typing import Any, Iterator, TypeVar
+from typing import Any, Iterable, TypeVar
 
 T = TypeVar("T")
 
 
 def batch_progress(
-    loader: Iterator[T],
+    loader: Iterable[T],
     *,
     desc: str,
     total: int | None = None,
     enabled: bool = True,
-) -> Iterator[T]:
+) -> Iterable[T]:
     if not enabled:
-        yield from loader
-        return
+        return loader
 
     from tqdm import tqdm
 
-    bar = tqdm(
+    return tqdm(
         loader,
         total=total,
         desc=desc,
@@ -32,13 +31,11 @@ def batch_progress(
         leave=False,
         unit="batch",
     )
-    try:
-        yield from bar
-    finally:
-        bar.close()
 
 
 def update_postfix(bar: Any, *, loss: float, acc: float, every: int, step: int) -> None:
+    if not hasattr(bar, "set_postfix"):
+        return
     if step == 1 or step % every == 0 or step == getattr(bar, "total", step):
         bar.set_postfix(loss=f"{loss:.4f}", acc=f"{acc:.3f}", refresh=False)
         bar.refresh()
