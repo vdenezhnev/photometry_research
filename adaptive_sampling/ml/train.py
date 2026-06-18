@@ -12,14 +12,59 @@ from ..common.paths import PROJECT_ROOT, resolve_path
 from .build_dataset import build_dataset, load_ml_config
 from .dataset import build_pair_dataset, load_training_pairs, split_by_video
 from .model import PairQualityModel
+from .progress import batch_progress, update_postfix
 
 
-def _progress(loader, *, desc: str, show_progress: bool):
-    if not show_progress:
-        return loader
-    from tqdm import tqdm
+def _run_loader(
+    loader,
+    *,
+    model,
+    device,
+    criterion,
+    optimizer=None,
+    desc: str,
+    show_progress: bool,
+) -> tuple[float, float]:
+    import torch
 
-    return tqdm(loader, desc=desc, leave=False, unit="batch")
+    train_mode = optimizer is not None
+    if train_mode:
+        model.train()
+    else:
+        model.eval()
+
+    total_loss = 0.0
+    correct = 0
+    n = 0
+    n_batches = len(loader)
+    postfix_every = max(1, n_batches // 40)
+
+    batches = batch_progress(loader, desc=desc, total=n_batches, enabled=show_progress)
+    ctx = torch.enable_grad() if train_mode else torch.no_grad()
+    with ctx:
+        for batch_idx, (img_a, img_b, y) in enumerate(batches, start=1):
+            img_a, img_b, y = img_a.to(device), img_b.to(device), y.float().to(device)
+            if train_mode:
+                optimizer.zero_grad()
+            logits = model(img_a, img_b)
+            loss = criterion(logits, y)
+            if train_mode:
+                loss.backward()
+                optimizer.step()
+            total_loss += loss.item() * len(y)
+            preds = (torch.sigmoid(logits) >= 0.5).long()
+            correct += (preds == y.long()).sum().item()
+            n += len(y)
+            if show_progress:
+                update_postfix(
+                    batches,
+                    loss=total_loss / max(n, 1),
+                    acc=correct / max(n, 1),
+                    every=postfix_every,
+                    step=batch_idx,
+                )
+
+    return total_loss / max(n, 1), correct / max(n, 1)
 
 
 def train(config_path: Path | None = None, *, show_progress: bool = True) -> Path:
@@ -27,7 +72,6 @@ def train(config_path: Path | None = None, *, show_progress: bool = True) -> Pat
     import torch.nn as nn
     from torch.utils.data import DataLoader
     from torchvision import transforms
-    from tqdm import tqdm
 
     cfg = load_ml_config(config_path)
     paths = cfg.get("paths") or {}
@@ -98,84 +142,44 @@ def train(config_path: Path | None = None, *, show_progress: bool = True) -> Pat
     best_path = ckpt_dir / "best.pt"
     history: list[dict] = []
 
-    epoch_iter: Any = range(1, epochs + 1)
-    if show_progress:
-        epoch_iter = tqdm(epoch_iter, desc="Training", unit="epoch")
-
-    for epoch in epoch_iter:
-        model.train()
-        train_loss = 0.0
-        train_correct = 0
-        train_n = 0
-
-        train_batches = _progress(
+    for epoch in range(1, epochs + 1):
+        train_loss, train_acc = _run_loader(
             train_loader,
+            model=model,
+            device=device,
+            criterion=criterion,
+            optimizer=opt,
             desc=f"Epoch {epoch}/{epochs} train",
             show_progress=show_progress,
         )
-        for img_a, img_b, y in train_batches:
-            img_a, img_b, y = img_a.to(device), img_b.to(device), y.float().to(device)
-            opt.zero_grad()
-            logits = model(img_a, img_b)
-            loss = criterion(logits, y)
-            loss.backward()
-            opt.step()
-            train_loss += loss.item() * len(y)
-            preds = (torch.sigmoid(logits) >= 0.5).long()
-            train_correct += (preds == y.long()).sum().item()
-            train_n += len(y)
-            if show_progress:
-                train_batches.set_postfix(
-                    loss=f"{train_loss / max(train_n, 1):.4f}",
-                    acc=f"{train_correct / max(train_n, 1):.3f}",
-                )
 
         metrics: dict[str, Any] = {
             "epoch": epoch,
-            "train_loss": train_loss / max(train_n, 1),
-            "train_acc": train_correct / max(train_n, 1),
+            "train_loss": train_loss,
+            "train_acc": train_acc,
         }
 
         if val_loader:
-            model.eval()
-            val_correct = val_n = 0
-            val_loss = 0.0
-            val_batches = _progress(
+            val_loss, val_acc = _run_loader(
                 val_loader,
+                model=model,
+                device=device,
+                criterion=criterion,
                 desc=f"Epoch {epoch}/{epochs} val",
                 show_progress=show_progress,
             )
-            with torch.no_grad():
-                for img_a, img_b, y in val_batches:
-                    img_a, img_b, y = img_a.to(device), img_b.to(device), y.float().to(device)
-                    logits = model(img_a, img_b)
-                    val_loss += criterion(logits, y).item() * len(y)
-                    preds = (torch.sigmoid(logits) >= 0.5).long()
-                    val_correct += (preds == y.long()).sum().item()
-                    val_n += len(y)
-                    if show_progress:
-                        val_batches.set_postfix(
-                            loss=f"{val_loss / max(val_n, 1):.4f}",
-                            acc=f"{val_correct / max(val_n, 1):.3f}",
-                        )
-            metrics["val_loss"] = val_loss / max(val_n, 1)
-            metrics["val_acc"] = val_correct / max(val_n, 1)
-            score = metrics["val_acc"]
+            metrics["val_loss"] = val_loss
+            metrics["val_acc"] = val_acc
+            score = val_acc
         else:
-            score = metrics["train_acc"]
+            score = train_acc
 
         history.append(metrics)
 
-        if show_progress:
-            postfix = {"train_acc": f"{metrics['train_acc']:.3f}"}
-            if val_loader:
-                postfix["val_acc"] = f"{metrics['val_acc']:.3f}"
-            epoch_iter.set_postfix(postfix)
-        else:
-            print(
-                f"epoch {epoch}/{epochs}  train_acc={metrics['train_acc']:.3f}"
-                + (f"  val_acc={metrics.get('val_acc', 0):.3f}" if val_loader else "")
-            )
+        line = f"Epoch {epoch}/{epochs}  train_acc={train_acc:.3f}  train_loss={train_loss:.4f}"
+        if val_loader:
+            line += f"  val_acc={metrics['val_acc']:.3f}  val_loss={metrics['val_loss']:.4f}"
+        print(line)
 
         if score >= best_val:
             best_val = score
