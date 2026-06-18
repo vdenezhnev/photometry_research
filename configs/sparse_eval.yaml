@@ -7,6 +7,11 @@ pycolmap:
   device: cuda
   # exhaustive = O(N²) пар, только для очень маленьких наборов
   matcher: sequential
+<<<<<<< HEAD
+=======
+  # Лимит кадров на один sparse-прогон (равномерная выборка)
+  max_images: 120
+>>>>>>> 98bfe12d96ab31783f6010fce03a7b58e9600621
   extraction_options:
     max_image_size: 1600
     sift:
