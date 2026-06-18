@@ -1,0 +1,10 @@
+{
+  "video_path": "/content/photometry_research/data/videos/video_2026-04-16_11-31-49.mp4",
+  "video_slug": "video_2026-04-16_11-31-49",
+  "output_dir": "/content/photometry_research/data/frames/video_2026-04-16_11-31-49/fps_60",
+  "extraction_fps": 60.0,
+  "frame_count": 1213,
+  "duration_sec": 20.233333333333334,
+  "source_avg_fps": 30.0,
+  "extracted_at": "2026-06-17T23:52:44.643516+00:00"
+}

@@ -1,0 +1,32 @@
+# Fine-tuning классификатора пар кадров (хорошая / плохая)
+
+paths:
+  frames_root: data/frames
+  sparse_results_root: results/task2_sparse_eval
+  manual_labels_xlsx: data/labels/manual/pairs.xlsx
+  dataset_csv: data/labels/pairs_dataset.csv
+  checkpoints_dir: models/checkpoints
+
+# Черновая подсказка из sparse (столбец suggested_label в Excel)
+sparse_auto:
+  good_min_registered_ratio: 0.6
+  require_passes_criteria: true
+
+# Шаблон для разметки: каждая N-я соседняя пара + все пары из fps с провалом sparse
+template:
+  pair_stride: 5
+  include_all_pairs_on_failed_fps: true
+
+training:
+  backbone: resnet18
+  image_size: 224
+  batch_size: 16
+  epochs: 15
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  val_ratio: 0.2
+  seed: 42
+  num_workers: 2
+
+inference:
+  threshold: 0.5

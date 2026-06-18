@@ -1,11 +1,16 @@
 # Sparse SfM через PyCOLMAP (Google Colab)
+#
+# Узкое место — matching при большом числе кадров (fps_30/60 на длинном ролике).
+# sequential + max_images дают быстрый пробный прогон.
 
 pycolmap:
-  # cpu | cuda | auto
-  device: cpu
+  device: cuda
+  # exhaustive = O(N²) пар, только для очень маленьких наборов
+  matcher: sequential
   extraction_options:
+    max_image_size: 1600
     sift:
-      max_num_features: 8192
+      max_num_features: 2048
   matching_options: {}
   mapper_options: {}
 

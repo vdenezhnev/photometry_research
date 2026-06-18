@@ -59,3 +59,13 @@ def test_select_top_fps_modes() -> None:
     results = [_R("fps_2", 0.9, 9), _R("fps_5", 0.7, 7), _R("fps_10", 0.5, 5)]
     top = select_top_fps_modes(results, top_k=2)
     assert top[0]["fps_label"] == "fps_2"
+
+
+def test_subsample_files(tmp_path: Path) -> None:
+    from adaptive_sampling.frames import _subsample_files
+
+    files = [tmp_path / f"f{i:03d}.jpg" for i in range(10)]
+    picked = _subsample_files(files, 4)
+    assert len(picked) == 4
+    assert picked[0] == files[0]
+    assert picked[-1] == files[-1]
