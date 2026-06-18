@@ -61,7 +61,18 @@ results = run_batch_for_video("my_video_slug")
 
 ## GPU в Colab
 
-В `configs/sparse_eval.yaml` можно задать `pycolmap.device: cuda` (если включён GPU в Colab).
+В `configs/sparse_eval.yaml`:
+
+```yaml
+pycolmap:
+  device: cuda
+  matcher: sequential   # не exhaustive!
+  max_images: 120       # лимит кадров на прогон
+```
+
+**Почему долго:** `match_exhaustive` сравнивает все пары кадров — при fps_30/60 на минутном ролике это тысячи изображений и миллионы пар. Для видео всегда используйте `sequential` и `max_images`.
+
+Ориентир на Colab T4: один FPS-режим ~2–8 мин при `max_images: 120`; все 5 FPS одного видео ~15–40 мин.
 
 ## Связь с BLK-06
 

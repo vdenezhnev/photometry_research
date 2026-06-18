@@ -186,8 +186,23 @@ def extract_all_fps_in_directory(
     return results
 
 
-def copy_frames_to_workspace(frames_dir: Path, images_dir: Path) -> int:
-    """Copy extracted frames into a PyCOLMAP workspace."""
+def _subsample_files(files: list[Path], max_images: int) -> list[Path]:
+    if max_images <= 0 or len(files) <= max_images:
+        return files
+    if max_images == 1:
+        return [files[0]]
+    last = len(files) - 1
+    step = last / (max_images - 1)
+    return [files[round(i * step)] for i in range(max_images)]
+
+
+def copy_frames_to_workspace(
+    frames_dir: Path,
+    images_dir: Path,
+    *,
+    max_images: int | None = None,
+) -> tuple[int, int]:
+    """Copy frames into PyCOLMAP workspace. Returns (used_count, source_count)."""
     frames_dir = resolve_path(frames_dir)
     images_dir.mkdir(parents=True, exist_ok=True)
     if images_dir.exists():
@@ -200,6 +215,11 @@ def copy_frames_to_workspace(frames_dir: Path, images_dir: Path) -> int:
     )
     if not files:
         raise ValueError(f"No images in {frames_dir}")
+
+    source_count = len(files)
+    if max_images is not None and source_count > max_images:
+        files = _subsample_files(files, max_images)
+
     for src in files:
         shutil.copy2(src, images_dir / src.name)
-    return len(files)
+    return len(files), source_count

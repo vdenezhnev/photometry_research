@@ -2,7 +2,6 @@ data/videos/**/*.mp4
 data/videos/**/*.mov
 data/videos/**/*.avi
 data/videos/**/*.mkv
-data/frames/**/*
 !data/frames/**/.gitkeep
 !data/videos/**/.gitkeep
 
@@ -11,3 +10,8 @@ results/**/*
 
 .ipynb_checkpoints/
 *.log
+
+*.xlsx
+*.csv
+
+test.py
