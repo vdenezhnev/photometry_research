@@ -46,8 +46,18 @@ def write_sparse_run_xlsx(result_dict: dict[str, Any], xlsx_path: Path) -> None:
         "composite_score",
         "passes_criteria",
         "mapper_success",
+        "glb_path",
     ):
         ws.append([key, metrics.get(key) if key in metrics else result_dict.get(key)])
+
+    gpu_stats = result_dict.get("gpu_stats") or {}
+    if gpu_stats:
+        ws_gpu = wb.create_sheet("gpu")
+        ws_gpu.append(["key", "value"])
+        for key, value in gpu_stats.items():
+            ws_gpu.append([key, value])
+        _autosize_columns(ws_gpu)
+
     _autosize_columns(ws)
 
     durations = result_dict.get("stage_durations_sec") or {}

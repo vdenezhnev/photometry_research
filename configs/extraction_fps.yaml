@@ -4,5 +4,5 @@ output:
   frames_pattern: data/frames/{video_slug}/fps_{fps}
 
 extraction:
-  jpeg_quality: 95
+  jpeg_quality: 100
   image_format: jpg

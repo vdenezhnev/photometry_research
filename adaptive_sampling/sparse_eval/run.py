@@ -13,10 +13,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..common.config import load_sparse_config
+from ..common.gpu_monitor import GpuMonitor
 from ..common.paths import resolve_path
 from ..frame_extraction import copy_frames_to_workspace
 from .export import write_comparison_xlsx, write_sparse_run_xlsx
+from .export_glb import export_sparse_pointcloud_glb
 from .metrics import empty_metrics, metrics_from_reconstruction
+from .run_log import MASTER_RUN_COLUMNS, append_master_run_log
 
 LogFn = Callable[[str], None]
 
@@ -35,6 +38,9 @@ class EvalRunResult:
     stage_durations_sec: dict[str, float]
     source_frame_count: int
     eval_frame_count: int
+    glb_path: Path | None = None
+    gpu_stats: dict[str, Any] | None = None
+    evaluated_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -44,9 +50,11 @@ class EvalRunResult:
             "output_dir": str(self.output_dir),
             "source_frame_count": self.source_frame_count,
             "eval_frame_count": self.eval_frame_count,
+            "glb_path": str(self.glb_path) if self.glb_path else None,
+            "gpu_stats": self.gpu_stats or {},
             "metrics": self.metrics.to_dict(),
             "stage_durations_sec": self.stage_durations_sec,
-            "evaluated_at": datetime.now(timezone.utc).isoformat(),
+            "evaluated_at": self.evaluated_at,
         }
 
 
@@ -201,7 +209,28 @@ def run_sparse_eval(
     if source_count > eval_count:
         log(f"[{video_slug}/{fps_label}] subsampled {source_count} -> {eval_count} frames (max_images)")
 
-    reconstruction, durations = run_pycolmap_sparse(images_dir, workspace, pycolmap_cfg, log=log)
+    gpu_cfg = config.get("gpu_monitor") or {}
+    device_requested = str(pycolmap_cfg.get("device") or "auto")
+    with GpuMonitor(
+        device_requested=device_requested,
+        sample_interval_sec=float(gpu_cfg.get("sample_interval_sec", 1.0)),
+        active_util_threshold=float(gpu_cfg.get("active_util_threshold", 5.0)),
+        enabled=bool(gpu_cfg.get("enabled", True)),
+    ) as gpu_monitor:
+        reconstruction, durations = run_pycolmap_sparse(images_dir, workspace, pycolmap_cfg, log=log)
+        gpu_stats = gpu_monitor.collect_stats().to_dict()
+
+    if gpu_stats.get("gpu_available"):
+        log(
+            f"  GPU {gpu_stats.get('gpu_name')}: "
+            f"active {gpu_stats.get('gpu_active_duration_sec')}s / "
+            f"{gpu_stats.get('monitor_duration_sec')}s "
+            f"(util avg={gpu_stats.get('utilization_gpu_avg')}%, "
+            f"max={gpu_stats.get('utilization_gpu_max')}%, "
+            f"mem max={gpu_stats.get('memory_used_mb_max')} MB)"
+        )
+    else:
+        log("  GPU monitor: nvidia-smi unavailable or disabled")
 
     db_path = workspace / "database.db"
     db_images = _count_database_images(db_path)
@@ -218,6 +247,18 @@ def run_sparse_eval(
         )
 
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    glb_path: Path | None = None
+    export_cfg = config.get("export") or {}
+    if export_cfg.get("glb", True) and reconstruction is not None:
+        glb_name = str(export_cfg.get("glb_filename", "sparse_pointcloud.glb"))
+        try:
+            glb_path = export_sparse_pointcloud_glb(reconstruction, output_dir / glb_name)
+            if glb_path:
+                log(f"  exported GLB: {glb_path} ({reconstruction.num_points3D()} points)")
+        except Exception as exc:
+            log(f"  GLB export failed: {exc}")
+
     result = EvalRunResult(
         video_slug=video_slug,
         fps_label=fps_label,
@@ -227,17 +268,71 @@ def run_sparse_eval(
         stage_durations_sec=durations,
         source_frame_count=source_count,
         eval_frame_count=eval_count,
+        glb_path=glb_path,
+        gpu_stats=gpu_stats,
+        evaluated_at=datetime.now(timezone.utc).isoformat(),
     )
+    result_dict = result.to_dict()
     (output_dir / "sparse_metrics.json").write_text(
-        json.dumps(result.to_dict(), indent=2, ensure_ascii=False),
+        json.dumps(result_dict, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    write_sparse_run_xlsx(result.to_dict(), output_dir / "sparse_metrics.xlsx")
+    write_sparse_run_xlsx(result_dict, output_dir / "sparse_metrics.xlsx")
+
+    master_log_path = resolve_path(
+        export_cfg.get("master_log_xlsx", "results/task2_sparse_eval/all_runs_log.xlsx")
+    )
+    if export_cfg.get("master_log", True):
+        append_master_run_log(_build_master_run_row(result, gpu_stats), master_log_path)
+        log(f"  master log updated: {master_log_path}")
 
     if clean_workspace:
         shutil.rmtree(workspace, ignore_errors=True)
 
     return result
+
+
+def _build_master_run_row(result: EvalRunResult, gpu_stats: dict[str, Any]) -> dict[str, Any]:
+    m = result.metrics
+    durations = result.stage_durations_sec or {}
+    total_duration = round(sum(durations.values()), 3) if durations else 0.0
+    row = {
+        "evaluated_at": result.evaluated_at,
+        "video_slug": result.video_slug,
+        "fps_label": result.fps_label,
+        "output_dir": str(result.output_dir),
+        "device_requested": gpu_stats.get("device_requested"),
+        "gpu_available": gpu_stats.get("gpu_available"),
+        "gpu_name": gpu_stats.get("gpu_name"),
+        "monitor_duration_sec": gpu_stats.get("monitor_duration_sec"),
+        "gpu_active_duration_sec": gpu_stats.get("gpu_active_duration_sec"),
+        "gpu_active_ratio": gpu_stats.get("gpu_active_ratio"),
+        "gpu_util_avg": gpu_stats.get("utilization_gpu_avg"),
+        "gpu_util_max": gpu_stats.get("utilization_gpu_max"),
+        "gpu_mem_util_avg": gpu_stats.get("utilization_mem_avg"),
+        "gpu_mem_util_max": gpu_stats.get("utilization_mem_max"),
+        "gpu_memory_used_mb_avg": gpu_stats.get("memory_used_mb_avg"),
+        "gpu_memory_used_mb_max": gpu_stats.get("memory_used_mb_max"),
+        "gpu_memory_total_mb": gpu_stats.get("memory_total_mb"),
+        "gpu_temperature_c_max": gpu_stats.get("temperature_c_max"),
+        "gpu_samples_count": gpu_stats.get("samples_count"),
+        "total_duration_sec": total_duration,
+        "stage_feature_extractor_sec": durations.get("feature_extractor"),
+        "stage_feature_matcher_sec": durations.get("feature_matcher"),
+        "stage_mapper_sec": durations.get("mapper"),
+        "source_frames": result.source_frame_count,
+        "eval_frames": result.eval_frame_count,
+        "input_images": m.input_images,
+        "registered_images": m.registered_images,
+        "registered_ratio": m.registered_ratio,
+        "sparse_points": m.sparse_points,
+        "mean_track_length": m.mean_track_length,
+        "composite_score": m.composite_score,
+        "passes_criteria": m.passes_criteria,
+        "mapper_success": m.mapper_success,
+        "glb_path": str(result.glb_path) if result.glb_path else "",
+    }
+    return {key: row.get(key, "") for key in MASTER_RUN_COLUMNS}
 
 
 def _result_row(result: EvalRunResult) -> dict[str, Any]:
@@ -255,6 +350,9 @@ def _result_row(result: EvalRunResult) -> dict[str, Any]:
         "composite_score": m.composite_score,
         "passes_criteria": m.passes_criteria,
         "mapper_success": m.mapper_success,
+        "glb_path": str(result.glb_path) if result.glb_path else "",
+        "gpu_util_avg": (result.gpu_stats or {}).get("utilization_gpu_avg"),
+        "gpu_active_duration_sec": (result.gpu_stats or {}).get("gpu_active_duration_sec"),
     }
 
 

@@ -113,13 +113,18 @@ thresholds:
 
 Для каждого FPS:
 
-- `results/sparse_eval/<video>/fps_<N>/sparse_metrics.json`
-- `results/sparse_eval/<video>/fps_<N>/sparse_metrics.xlsx`
+- `results/task2_sparse_eval/<video>/fps_<N>/sparse_metrics.json`
+- `results/task2_sparse_eval/<video>/fps_<N>/sparse_metrics.xlsx`
+- `results/task2_sparse_eval/<video>/fps_<N>/sparse_pointcloud.glb` — sparse point cloud (GLB)
+
+**Сводная таблица всех прогонов:**
+
+- `results/task2_sparse_eval/all_runs_log.xlsx` — метрики + GPU-статистика по каждому запуску (дополняется автоматически)
 
 После batch:
 
-- `results/sparse_eval/_batch/<video>/comparison_table.xlsx`
-- `results/sparse_eval/_batch/<video>/top_fps_modes.json`
+- `results/task2_sparse_eval/_batch/<video>/comparison_table.xlsx`
+- `results/task2_sparse_eval/_batch/<video>/top_fps_modes.json`
 
 ## GPU в Colab
 
@@ -130,6 +135,15 @@ pycolmap:
   device: cuda
   matcher: sequential   # не exhaustive!
   max_images: 120       # лимит кадров на прогон
+
+export:
+  glb: true
+  master_log: true
+  master_log_xlsx: results/task2_sparse_eval/all_runs_log.xlsx
+
+gpu_monitor:
+  enabled: true
+  sample_interval_sec: 1.0
 ```
 
 **Почему долго:** `match_exhaustive` сравнивает все пары кадров — при fps_30/60 на минутном ролике это тысячи изображений и миллионы пар. Для видео всегда используйте `sequential` и `max_images`.
