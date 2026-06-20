@@ -116,6 +116,33 @@ thresholds:
 - `results/task2_sparse_eval/<video>/fps_<N>/sparse_metrics.json`
 - `results/task2_sparse_eval/<video>/fps_<N>/sparse_metrics.xlsx`
 - `results/task2_sparse_eval/<video>/fps_<N>/sparse_pointcloud.glb` — sparse point cloud (GLB)
+- `results/task2_sparse_eval/<video>/fps_<N>/fused.ply` — dense fused point cloud (после fused-прогона)
+- `results/task2_sparse_eval/<video>/fps_<N>/fused.glb` — fused point cloud (GLB)
+
+### Fused (dense) reconstruction
+
+После sparse SfM — dense pipeline (CUDA): `undistort_images` → `patch_match_stereo` → `stereo_fusion`.
+
+```bash
+# все FPS одного видео
+python -m adaptive_sampling.sparse_eval.fused --video video_2026-04-16_11-31-49
+```
+
+Программно:
+
+```python
+from adaptive_sampling import run_fused_batch_for_video
+
+run_fused_batch_for_video("video_2026-04-16_11-31-49")
+```
+
+Требуется **pycolmap с CUDA** (Colab GPU). Без CUDA dense-этап пропускается с предупреждением.
+
+Настройки в `configs/sparse_eval.yaml` → секция `dense`.
+
+После batch:
+
+- `results/task2_sparse_eval/_batch/<video>/fused_comparison_table.xlsx`
 
 **Сводная таблица всех прогонов:**
 
