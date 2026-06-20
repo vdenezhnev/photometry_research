@@ -34,15 +34,3 @@ gpu_monitor:
   enabled: true
   sample_interval_sec: 1.0
   active_util_threshold: 5.0
-
-# Dense MVS (CUDA): undistort → patch_match_stereo → stereo_fusion
-# Запуск: python -m adaptive_sampling.sparse_eval.fused --video <slug>
-dense:
-  enabled: false
-  results_subdir: task2_sparse_eval
-  fused_ply_filename: fused.ply
-  fused_glb_filename: fused.glb
-  export_glb: true
-  output_type: ply
-  patch_match_options:
-    filter: true

@@ -24,6 +24,10 @@ def load_sparse_config(path: Path | None = None) -> dict[str, Any]:
     return load_yaml(path, "configs/sparse_eval.yaml")
 
 
+def load_fused_config(path: Path | None = None) -> dict[str, Any]:
+    return load_yaml(path, "configs/fused_eval.yaml")
+
+
 def load_pair_quality_config(path: Path | None = None) -> dict[str, Any]:
     return load_yaml(path, "configs/frame_pair_quality.yaml")
 

@@ -1,0 +1,42 @@
+# Dense MVS (fused point cloud) через PyCOLMAP
+#
+# Запуск:
+#   python -m adaptive_sampling.sparse_eval.run_fused
+#   python -m adaptive_sampling.sparse_eval.run_fused --video video_2026-04-16_11-31-49 --fps fps_30
+
+video_slug: video_2026-04-16_11-31-49
+fps_label: fps_30
+
+paths:
+  frames_root: data/frames
+  results_root: results/fused_eval
+  workspace_root: results/workspaces
+
+pycolmap:
+  device: cuda
+  matcher: sequential
+  # null = все кадры fps_30 (без subsample)
+  max_images: null
+  extraction_options:
+    max_image_size: 1600
+    sift:
+      max_num_features: 4096
+  matching_options: {}
+  mapper_options: {}
+
+dense:
+  input_type: geometric
+  undistort_options: {}
+  patch_match_options: {}
+  stereo_fusion_options: {}
+
+export:
+  fused_ply: fused.ply
+  fused_glb: fused.glb
+  glb: true
+  keep_workspace: true
+
+gpu_monitor:
+  enabled: true
+  sample_interval_sec: 1.0
+  active_util_threshold: 5.0

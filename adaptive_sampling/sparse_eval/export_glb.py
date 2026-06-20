@@ -40,32 +40,26 @@ def export_sparse_pointcloud_glb(reconstruction: Any, output_path: Path) -> Path
     return output_path
 
 
-def export_ply_pointcloud_glb(ply_path: Path, output_path: Path) -> Path | None:
-    """Export fused/dense PLY point cloud as GLB."""
+def export_fused_ply_glb(ply_path: Path, output_path: Path) -> Path | None:
+    """Export dense fused.ply from COLMAP stereo_fusion as GLB point cloud."""
     ply_path = Path(ply_path)
     if not ply_path.is_file():
         return None
 
     import trimesh
 
-    loaded = trimesh.load(str(ply_path))
-    if isinstance(loaded, trimesh.Scene):
-        geoms = [g for g in loaded.geometry.values() if len(getattr(g, "vertices", [])) > 0]
-        if not geoms:
-            return None
-        loaded = trimesh.util.concatenate(geoms) if len(geoms) > 1 else geoms[0]
-
-    vertices = getattr(loaded, "vertices", None)
-    if vertices is None or len(vertices) == 0:
-        return None
-
-    colors = getattr(loaded, "colors", None)
-    if colors is not None and len(colors) == len(vertices):
-        cloud = trimesh.points.PointCloud(vertices=vertices, colors=colors)
-    else:
-        cloud = trimesh.points.PointCloud(vertices=vertices)
-
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    cloud.export(str(output_path))
+
+    loaded = trimesh.load(str(ply_path), process=False)
+    if isinstance(loaded, trimesh.Scene):
+        if not loaded.geometry:
+            return None
+        loaded.export(str(output_path))
+        return output_path
+
+    if getattr(loaded, "vertices", None) is None or len(loaded.vertices) == 0:
+        return None
+
+    loaded.export(str(output_path))
     return output_path

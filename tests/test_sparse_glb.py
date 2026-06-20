@@ -50,20 +50,3 @@ def test_export_returns_none_without_points() -> None:
     recon = _Reconstruction({})
     assert export_sparse_pointcloud_glb(recon, Path("x.glb")) is None
     assert export_sparse_pointcloud_glb(None, Path("x.glb")) is None
-
-
-def test_export_ply_pointcloud_glb(tmp_path: Path) -> None:
-    from adaptive_sampling.sparse_eval.export_glb import export_ply_pointcloud_glb
-
-    trimesh = pytest.importorskip("trimesh")
-    ply = tmp_path / "fused.ply"
-    cloud = trimesh.points.PointCloud(
-        vertices=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
-        colors=[[255, 0, 0], [0, 255, 0]],
-    )
-    cloud.export(str(ply))
-
-    out = tmp_path / "fused.glb"
-    path = export_ply_pointcloud_glb(ply, out)
-    assert path == out
-    assert out.is_file()

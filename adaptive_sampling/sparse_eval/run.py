@@ -17,8 +17,7 @@ from ..common.gpu_monitor import GpuMonitor
 from ..common.paths import resolve_path
 from ..frame_extraction import copy_frames_to_workspace
 from .export import write_comparison_xlsx, write_sparse_run_xlsx
-from .export_glb import export_ply_pointcloud_glb, export_sparse_pointcloud_glb
-from .dense import dense_api_available, run_dense_fusion
+from .export_glb import export_sparse_pointcloud_glb
 from .metrics import empty_metrics, metrics_from_reconstruction
 from .run_log import MASTER_RUN_COLUMNS, append_master_run_log
 
@@ -40,9 +39,6 @@ class EvalRunResult:
     source_frame_count: int
     eval_frame_count: int
     glb_path: Path | None = None
-    fused_ply_path: Path | None = None
-    fused_glb_path: Path | None = None
-    fused_point_count: int = 0
     gpu_stats: dict[str, Any] | None = None
     evaluated_at: str = ""
 
@@ -55,9 +51,6 @@ class EvalRunResult:
             "source_frame_count": self.source_frame_count,
             "eval_frame_count": self.eval_frame_count,
             "glb_path": str(self.glb_path) if self.glb_path else None,
-            "fused_ply_path": str(self.fused_ply_path) if self.fused_ply_path else None,
-            "fused_glb_path": str(self.fused_glb_path) if self.fused_glb_path else None,
-            "fused_point_count": self.fused_point_count,
             "gpu_stats": self.gpu_stats or {},
             "metrics": self.metrics.to_dict(),
             "stage_durations_sec": self.stage_durations_sec,
@@ -189,20 +182,14 @@ def run_sparse_eval(
     output_dir: Path | None = None,
     config_path: Path | None = None,
     clean_workspace: bool = True,
-    fused: bool = False,
     log: LogFn = _default_log,
 ) -> EvalRunResult:
     config = load_sparse_config(config_path)
     video_slug, fps_label = parse_frames_dir(frames_dir)
     frames_dir = resolve_path(frames_dir)
-    dense_cfg = config.get("dense") or {}
-    run_fused = fused or bool(dense_cfg.get("enabled", False))
 
     if output_dir is None:
-        results_subdir = "task2_sparse_eval"
-        if run_fused:
-            results_subdir = str(dense_cfg.get("results_subdir") or "task2_fused_eval")
-        output_dir = resolve_path(f"results/{results_subdir}/{video_slug}/{fps_label}")
+        output_dir = resolve_path(f"results/task2_sparse_eval/{video_slug}/{fps_label}")
     else:
         output_dir = resolve_path(output_dir)
 
@@ -222,14 +209,8 @@ def run_sparse_eval(
     if source_count > eval_count:
         log(f"[{video_slug}/{fps_label}] subsampled {source_count} -> {eval_count} frames (max_images)")
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     gpu_cfg = config.get("gpu_monitor") or {}
     device_requested = str(pycolmap_cfg.get("device") or "auto")
-    fused_ply_path: Path | None = None
-    fused_glb_path: Path | None = None
-    fused_point_count = 0
-
     with GpuMonitor(
         device_requested=device_requested,
         sample_interval_sec=float(gpu_cfg.get("sample_interval_sec", 1.0)),
@@ -237,33 +218,6 @@ def run_sparse_eval(
         enabled=bool(gpu_cfg.get("enabled", True)),
     ) as gpu_monitor:
         reconstruction, durations = run_pycolmap_sparse(images_dir, workspace, pycolmap_cfg, log=log)
-
-        if run_fused and reconstruction is not None:
-            if not dense_api_available():
-                log("  fused: CUDA dense API unavailable in pycolmap, skipping")
-            else:
-                try:
-                    sparse_model_dir = workspace / "sparse" / "0"
-                    workspace_fused, dense_durations, fused_point_count = run_dense_fusion(
-                        workspace=workspace,
-                        image_dir=images_dir,
-                        sparse_model_dir=sparse_model_dir,
-                        dense_cfg=dense_cfg,
-                        log=log,
-                    )
-                    durations.update(dense_durations)
-                    if workspace_fused is not None:
-                        dest_ply = output_dir / str(dense_cfg.get("fused_ply_filename", "fused.ply"))
-                        shutil.copy2(workspace_fused, dest_ply)
-                        fused_ply_path = dest_ply
-                        if dense_cfg.get("export_glb", True):
-                            glb_name = str(dense_cfg.get("fused_glb_filename", "fused.glb"))
-                            fused_glb_path = export_ply_pointcloud_glb(dest_ply, output_dir / glb_name)
-                            if fused_glb_path:
-                                log(f"  exported fused GLB: {fused_glb_path} ({fused_point_count} points)")
-                except Exception as exc:
-                    log(f"  fused pipeline failed: {exc}")
-
         gpu_stats = gpu_monitor.collect_stats().to_dict()
 
     if gpu_stats.get("gpu_available"):
@@ -292,6 +246,8 @@ def run_sparse_eval(
             criteria=criteria,
         )
 
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     glb_path: Path | None = None
     export_cfg = config.get("export") or {}
     if export_cfg.get("glb", True) and reconstruction is not None:
@@ -313,9 +269,6 @@ def run_sparse_eval(
         source_frame_count=source_count,
         eval_frame_count=eval_count,
         glb_path=glb_path,
-        fused_ply_path=fused_ply_path,
-        fused_glb_path=fused_glb_path,
-        fused_point_count=fused_point_count,
         gpu_stats=gpu_stats,
         evaluated_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -367,12 +320,6 @@ def _build_master_run_row(result: EvalRunResult, gpu_stats: dict[str, Any]) -> d
         "stage_feature_extractor_sec": durations.get("feature_extractor"),
         "stage_feature_matcher_sec": durations.get("feature_matcher"),
         "stage_mapper_sec": durations.get("mapper"),
-        "stage_undistort_sec": durations.get("undistort"),
-        "stage_patch_match_stereo_sec": durations.get("patch_match_stereo"),
-        "stage_stereo_fusion_sec": durations.get("stereo_fusion"),
-        "fused_ply_path": str(result.fused_ply_path) if result.fused_ply_path else "",
-        "fused_glb_path": str(result.fused_glb_path) if result.fused_glb_path else "",
-        "fused_point_count": result.fused_point_count,
         "source_frames": result.source_frame_count,
         "eval_frames": result.eval_frame_count,
         "input_images": m.input_images,
@@ -404,9 +351,6 @@ def _result_row(result: EvalRunResult) -> dict[str, Any]:
         "passes_criteria": m.passes_criteria,
         "mapper_success": m.mapper_success,
         "glb_path": str(result.glb_path) if result.glb_path else "",
-        "fused_ply_path": str(result.fused_ply_path) if result.fused_ply_path else "",
-        "fused_glb_path": str(result.fused_glb_path) if result.fused_glb_path else "",
-        "fused_point_count": result.fused_point_count,
         "gpu_util_avg": (result.gpu_stats or {}).get("utilization_gpu_avg"),
         "gpu_active_duration_sec": (result.gpu_stats or {}).get("gpu_active_duration_sec"),
     }
@@ -482,89 +426,6 @@ def run_batch_for_video(
         xlsx_path=batch_dir / "comparison_table.xlsx",
     )
     (batch_dir / "top_fps_modes.json").write_text(
-        json.dumps({"video_slug": video_slug, "top_fps_modes": top}, indent=2),
-        encoding="utf-8",
-    )
-    return results
-
-
-def run_fused_eval(
-    frames_dir: Path,
-    *,
-    output_dir: Path | None = None,
-    config_path: Path | None = None,
-    clean_workspace: bool = True,
-    log: LogFn = _default_log,
-) -> EvalRunResult:
-    """Sparse SfM + dense stereo fusion for one fps_* directory."""
-    return run_sparse_eval(
-        frames_dir,
-        output_dir=output_dir,
-        config_path=config_path,
-        clean_workspace=clean_workspace,
-        fused=True,
-        log=log,
-    )
-
-
-def run_fused_batch_for_video(
-    video_slug: str,
-    *,
-    frames_root: Path | None = None,
-    results_root: Path | None = None,
-    config_path: Path | None = None,
-    top_k: int | None = None,
-    log: LogFn = _default_log,
-) -> list[EvalRunResult]:
-    """Run fused reconstruction for every fps_* under data/frames/<video>."""
-    config = load_sparse_config(config_path)
-    frames_root = resolve_path(frames_root or "data/frames")
-    dense_cfg = config.get("dense") or {}
-    results_subdir = str(dense_cfg.get("results_subdir") or "task2_sparse_eval")
-    results_root = resolve_path(results_root or f"results/{results_subdir}")
-    top_k = int(top_k if top_k is not None else config.get("top_k_fps_modes", 3))
-
-    video_dir = frames_root / video_slug
-    if not video_dir.is_dir():
-        raise FileNotFoundError(f"Not found: {video_dir}")
-
-    fps_dirs = sorted(p for p in video_dir.iterdir() if p.is_dir() and p.name.startswith("fps_"))
-    if not fps_dirs:
-        raise ValueError(f"No fps_* under {video_dir}")
-
-    log(f"Fused batch: {video_slug} — {len(fps_dirs)} FPS mode(s)")
-    if not dense_api_available():
-        log("Warning: pycolmap dense API not available — fused stage will be skipped per run")
-
-    results: list[EvalRunResult] = []
-    for i, fps_dir in enumerate(fps_dirs, start=1):
-        log(f"\n[{video_slug}] fused ({i}/{len(fps_dirs)}) {fps_dir.name}")
-        results.append(
-            run_fused_eval(
-                fps_dir,
-                output_dir=results_root / video_slug / fps_dir.name,
-                config_path=config_path,
-                log=log,
-            )
-        )
-
-    batch_dir = results_root / "_batch" / video_slug
-    batch_dir.mkdir(parents=True, exist_ok=True)
-    rows = [_result_row(r) for r in results]
-    top = select_top_fps_modes(results, top_k=top_k)
-
-    with (batch_dir / "fused_comparison_table.csv").open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
-
-    write_comparison_xlsx(
-        video_slug=video_slug,
-        comparison_rows=rows,
-        top_fps_modes=top,
-        xlsx_path=batch_dir / "fused_comparison_table.xlsx",
-    )
-    (batch_dir / "fused_top_fps_modes.json").write_text(
         json.dumps({"video_slug": video_slug, "top_fps_modes": top}, indent=2),
         encoding="utf-8",
     )
